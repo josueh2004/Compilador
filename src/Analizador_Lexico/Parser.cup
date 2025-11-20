@@ -1,0 +1,487 @@
+/* Parser.cup*/
+
+package Analizador_Lexico;
+
+import java_cup.runtime.*;
+import Arbol.*;
+import Analizador_Semantico.TipoDato;
+
+import java.util.*;
+
+
+parser code {:
+    public StringBuilder erroresSintacticos = new StringBuilder();
+    private final Stack<String> pilaEstructuras = new Stack<>();
+
+    // --- Manejo de errores sintácticos generales ---
+    @Override
+    public void report_error(String message, Object info) {
+        int linea = 0, columna = 0;
+        String lexema = "EOF o símbolo desconocido";
+
+        if (info instanceof java_cup.runtime.Symbol) {
+            java_cup.runtime.Symbol sym = (java_cup.runtime.Symbol) info;
+            if (sym.left >= 0) linea = sym.left + 1;
+            if (sym.right >= 0) columna = sym.right + 1;
+            if (sym.value != null) lexema = sym.value.toString();
+        }
+
+        String sugerencia = "";
+        // --- Detectar qué podría faltar según el contexto ---
+        if (lexema.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
+            sugerencia = "Se esperaba '(' después de 'while', 'if', 'for' o una estructura válida.";
+        } else if (lexema.equals("{")) {
+            sugerencia = "Se esperaba una instrucción antes de la llave de apertura '{'.";
+        } else if (lexema.equals("}")) {
+            sugerencia = "Posiblemente sobra una llave de cierre '}'.";
+        } else if (lexema.equals(")")) {
+            sugerencia = "Puede faltar un paréntesis de apertura '('.";
+        } else if (lexema.equals(";")) {
+            sugerencia = "Puede faltar una instrucción antes del ';'.";
+        } else if (lexema.equals("EOF o símbolo desconocido")) {
+            sugerencia = "Posiblemente falta una llave, paréntesis o punto y coma al final.";
+        }
+
+        String mensaje = "Error sintáctico: símbolo inesperado '" + lexema +
+                         "' en línea " + linea + ", columna " + columna + ". " + sugerencia;
+
+        erroresSintacticos.append(mensaje).append("\n");
+      //  System.err.println(mensaje);
+    }
+
+    // --- Errores de estructura (llaves, paréntesis, corchetes) ---
+    @Override
+    public void syntax_error(java_cup.runtime.Symbol s) {
+        int linea = 0, columna = 0;
+        String lexema = "EOF o símbolo desconocido";
+
+        if (s != null) {
+            if (s.left >= 0) linea = s.left + 1;
+            if (s.right >= 0) columna = s.right + 1;
+            if (s.value != null) lexema = s.value.toString();
+        }
+
+        String mensaje = null;
+
+        // Seguimiento de estructuras
+        switch (lexema) {
+            case "{":
+            case "(":
+            case "[":
+                pilaEstructuras.push(lexema + "@" + linea);
+                break;
+
+            case "}":
+                if (!pilaEstructuras.isEmpty() && pilaEstructuras.peek().startsWith("{")) {
+                    pilaEstructuras.pop();
+                } else {
+                    mensaje = "Llave de cierre '}' inesperada en línea " + linea;
+                }
+                break;
+
+            case ")":
+                if (!pilaEstructuras.isEmpty() && pilaEstructuras.peek().startsWith("(")) {
+                    pilaEstructuras.pop();
+                } else {
+                    mensaje = "Paréntesis de cierre ')' inesperado en línea " + linea;
+                }
+                break;
+
+            case "]":
+                if (!pilaEstructuras.isEmpty() && pilaEstructuras.peek().startsWith("[")) {
+                    pilaEstructuras.pop();
+                } else {
+                    mensaje = "Corchete de cierre ']' inesperado en línea " + linea;
+                }
+                break;
+
+            case "EOF o símbolo desconocido":
+                while (!pilaEstructuras.isEmpty()) {
+                    String apertura = pilaEstructuras.pop();
+                    String tipo = apertura.substring(0, 1);
+                    int lineaApertura = Integer.parseInt(apertura.split("@")[1]);
+                    switch (tipo) {
+                        case "{": mensaje = "Falta '}' correspondiente a la llave abierta en línea " + lineaApertura; break;
+                        case "(": mensaje = "Falta ')' correspondiente al paréntesis abierto en línea " + lineaApertura; break;
+                        case "[": mensaje = "Falta ']' correspondiente al corchete abierto en línea " + lineaApertura; break;
+                    }
+                    erroresSintacticos.append(mensaje).append("\n");
+                  //  System.err.println(mensaje);
+                }
+                break;
+
+            default:
+                mensaje = "Error de estructura en línea " + linea + ", columna " + columna +
+                          ": símbolo inesperado '" + lexema + "'.";
+        }
+
+        if (mensaje != null) {
+            erroresSintacticos.append(mensaje).append("\n");
+        }
+    }
+
+    // --- Manejo de errores irrecuperables ---
+    @Override
+    public void unrecovered_syntax_error(java_cup.runtime.Symbol cur_token) throws java.lang.Exception {
+        int linea = (cur_token != null && cur_token.left >= 0) ? cur_token.left + 1 : -1;
+        int columna = (cur_token != null && cur_token.right >= 0) ? cur_token.right + 1 : -1;
+        String lexema = (cur_token != null && cur_token.value != null) ? cur_token.value.toString() : "EOF o símbolo desconocido";
+
+        String mensaje = "Error fatal: no se pudo recuperar del error en '" + lexema +
+                         "' (línea " + linea + ", columna " + columna + ").";
+
+        erroresSintacticos.append(mensaje).append("\n");
+       // System.err.println(mensaje);
+
+        throw new Error(mensaje); // evita que CUP lance excepción sin registrar el error
+    }
+:};
+
+
+// TERMINALES//
+terminal INT, STRING, BOOLEAN, FLOAT, VOID;
+terminal IF, ELSE, WHILE, FOR, RETURN, READ, PRINT, MAIN;
+terminal IN_PAREN, FIN_PAREN, IN_LLAVE, FIN_LLAVE, IN_CORCH, FIN_CORCH;
+terminal TERMINADOR, COMMA, ASIGNACION;
+terminal OPE_SUMA, OPE_RESTA, OPE_MULT, OPE_DIV;
+terminal MAYOR, MENOR, MAYORIGUAL, MENORIGUAL, COMPARACION;
+terminal AND, OR, NEGACION;
+terminal INCREMENTO, DECREMENTO,ERROR;
+//terminal ID, NUMERO_REAL, NUMERO, STRING_LITERAL, TRUE, FALSE;
+terminal String ID;
+terminal Integer NUMERO;
+terminal Float NUMERO_REAL;
+terminal String STRING_LITERAL;
+terminal Boolean TRUE, FALSE;
+
+
+// NO TERMINALES//
+non terminal Nodo_Programa programa;
+non terminal java.util.List<Nodo_Metodo> metodos;
+non terminal Nodo_Metodo metodo;
+non terminal java.util.List<Nodo_Parametro> parametros, listaParametros;
+non terminal java.util.List<Nodo_Instruccion> instrucciones;
+non terminal Nodo_Instruccion instruccion;
+non terminal Nodo_DeclaracionVariable declVariable;
+non terminal Nodo_If declIf;
+non terminal Nodo_While declWhile;
+non terminal Nodo_For declFor;
+non terminal Nodo_ExpresionST declIncrementoDecremento;
+non terminal Nodo_Print declImprimir;
+non terminal Nodo_Read declLeer;
+non terminal Nodo_Return declRetorno;
+non terminal Nodo_Asignacion declAsignacion;
+non terminal Nodo_DeclaracionArray declArray;
+non terminal Nodo_Expresion expresion, expresionOr, expresionAnd, expresionRelacional;
+non terminal Nodo_Expresion expresionAritmetica, termino,expresionUnaria, primario;
+non terminal Nodo_Expresion valLocalizable;
+non terminal Nodo_LlamaMetodo llamarMetodo;
+non terminal java.util.List<Nodo_Expresion> listaParametrosCall;
+non terminal Nodo_Instruccion inicioFor;
+non terminal Nodo_Instruccion pasoFor;
+
+//non terminal Nodo_Expresion pasoFor;
+//non terminal String tipoRetorno, tipo;
+//non terminal String tipoRetorno;
+//non terminal TipoDato tipo;
+non terminal TipoDato tipo, tipoRetorno;
+
+//PRECEDENCIA//
+precedence left OR;
+precedence left AND;
+precedence left COMPARACION;
+precedence left MAYOR, MENOR, MAYORIGUAL, MENORIGUAL;
+precedence left OPE_SUMA, OPE_RESTA;
+precedence left OPE_MULT, OPE_DIV;
+precedence right NEGACION, INCREMENTO, DECREMENTO;
+
+
+
+//GRAMATICA//
+programa ::= MAIN IN_LLAVE instrucciones:lista_instrucciones FIN_LLAVE metodos:lista_metodos
+        {:RESULT = new Nodo_Programa(lista_instrucciones, lista_metodos); :};
+
+metodos ::= metodo:m metodos:resto_lista
+  {:resto_lista.add(0, m); RESULT = resto_lista;:}
+  | /* vacio */
+  {: RESULT = new java.util.ArrayList<Nodo_Metodo>();:};
+
+metodo ::= tipoRetorno:tr ID:id IN_PAREN parametros:params FIN_PAREN IN_LLAVE instrucciones:insts FIN_LLAVE
+    {:RESULT =new Nodo_Metodo(tr, (String)id, params, insts);:};
+
+tipoRetorno ::= VOID {: RESULT = TipoDato.VOID; :}
+                 | tipo:t {: RESULT = t; :};
+
+
+          
+
+tipo ::= INT {: RESULT = TipoDato.INT; :}
+       | FLOAT {: RESULT = TipoDato.FLOAT; :}
+       | BOOLEAN {: RESULT = TipoDato.BOOLEAN; :}
+       | STRING {: RESULT = TipoDato.STRING; :};
+
+
+parametros ::= /* vacio */
+            {:RESULT = new ArrayList<Nodo_Parametro>(); :}
+             | listaParametros:lp {:RESULT=lp; :};
+
+listaParametros ::= tipo:t ID:id
+                   {:
+                   ArrayList<Nodo_Parametro> lista = new ArrayList<Nodo_Parametro>();
+                   lista.add(new Nodo_Parametro((String)id, t));
+                   RESULT = lista;
+                    :}
+                    | tipo:t ID:id COMMA listaParametros:resto
+                    {:
+                        resto.add(0, new Nodo_Parametro((String)id, t));
+                        RESULT= resto;
+                    :};
+
+  instrucciones ::= instruccion:inst instrucciones:resto_lista
+    {:
+      resto_lista.add(0, inst);
+      RESULT = resto_lista;
+    :}
+   |
+    /* vacio */
+    {:
+    RESULT = new java.util.ArrayList<Nodo_Instruccion>();
+  :}
+;
+
+instruccion ::= declVariable:dv {:RESULT = dv; :}
+              | declIf: di {:RESULT = di; :}
+              | declWhile:dw {:RESULT = dw; :}
+              | declFor:df {:RESULT = df; :}
+              | declImprimir:dimp {:RESULT = dimp; :}
+              | declRetorno:dr {:RESULT = dr; :}
+              | declLeer:dl {:RESULT = dl; :}
+              | declAsignacion:da {:RESULT = da; :}
+              | declIncrementoDecremento:did {:RESULT = did; :}
+              | declArray:dar {:RESULT = dar; :}
+              | llamarMetodo:lm TERMINADOR {:RESULT = new Nodo_ExpresionST(lm); :};
+
+declVariable ::=
+    tipo:t ID:id TERMINADOR
+        {: 
+           Symbol s = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 1);
+           RESULT = new Nodo_DeclaracionVariable(t, id, null, s.left + 1, s.right + 1);
+        :}
+  | tipo:t ID:id ASIGNACION expresion:exp TERMINADOR
+        {:
+           Symbol s = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 1);
+           RESULT = new Nodo_DeclaracionVariable(t, id, exp, s.left + 1, s.right + 1);
+        :};
+
+declIf ::= IF:i IN_PAREN expresion:cond FIN_PAREN IN_LLAVE instrucciones:inst FIN_LLAVE
+        {:RESULT = new Nodo_If(cond, inst, null); :}
+         | IF IN_PAREN expresion:cond FIN_PAREN IN_LLAVE instrucciones:inst FIN_LLAVE ELSE IN_LLAVE instrucciones:elseInst FIN_LLAVE
+         {:RESULT = new Nodo_If(cond, inst, elseInst);:};
+
+
+/*declWhile ::= WHILE IN_PAREN expresion:cond FIN_PAREN IN_LLAVE instrucciones:insts FIN_LLAVE
+            {:RESULT = new Nodo_While(cond, insts, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :};*/
+
+declWhile ::= WHILE IN_PAREN expresion:cond FIN_PAREN IN_LLAVE instrucciones:insts FIN_LLAVE
+              {: 
+                 Symbol whileSym = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 4);
+                 RESULT = new Nodo_While(cond, insts, whileSym.left + 1, whileSym.right + 1);
+              :};
+
+
+declFor ::= FOR IN_PAREN inicioFor:iniFor expresion:cond TERMINADOR pasoFor:pasoFor FIN_PAREN IN_LLAVE instrucciones:insts FIN_LLAVE
+            {:RESULT = new Nodo_For(iniFor, cond, pasoFor, insts,  ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :};
+
+inicioFor ::= TERMINADOR {:RESULT = null; :}
+            | declVariable:dv {:RESULT = dv; :}
+            | declAsignacion:da {:RESULT = da; :}; 
+
+pasoFor ::=  /* vacio */ {: RESULT = null; :}
+            | expresion:exp {: RESULT = (Nodo_Instruccion) exp; :}
+            | declAsignacion:da     {: RESULT = da; :};
+
+declIncrementoDecremento ::= valLocalizable:vl INCREMENTO TERMINADOR
+        {:
+        Symbol symInc = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 1);              
+        RESULT = new Nodo_ExpresionST(new Nodo_OpPostfija(vl, "++", symInc.left + 1, symInc.right + 1)); :}
+            | valLocalizable:vl DECREMENTO TERMINADOR
+        {:
+        Symbol symDec = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 1);
+        RESULT = new Nodo_ExpresionST(new Nodo_OpPostfija(vl, "--", symDec.left + 1, symDec.right + 1)); :};
+
+/*declImprimir ::= PRINT IN_PAREN STRING_LITERAL:str FIN_PAREN TERMINADOR
+                {:RESULT = new Nodo_Print(new Nodo_StringLiteral((String)str)); :}
+               | PRINT IN_PAREN expresion:exp FIN_PAREN TERMINADOR
+                {:RESULT = new Nodo_Print(exp); :};
+*/
+
+declImprimir ::=
+      PRINT IN_PAREN expresion:exp FIN_PAREN TERMINADOR
+        {: RESULT = new Nodo_Print(exp); :};
+
+
+declLeer ::= READ IN_PAREN ID:id FIN_PAREN TERMINADOR
+               {:
+                Symbol symId = (Symbol) CUP$Parser$stack.peek();
+                RESULT = new Nodo_Read(new Nodo_Identificador((String)id, symId.left + 1, symId.right + 1)); :};
+
+declRetorno ::= RETURN TERMINADOR             
+            {: 
+               Symbol retorno = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 1);
+               RESULT = new Nodo_Return(null,  retorno.left + 1, retorno.right + 1); :}
+             | RETURN expresion:exp TERMINADOR           
+            {: 
+                Symbol retorno = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 1);
+                RESULT = new Nodo_Return(exp,  retorno.left + 1, retorno.right + 1); :};
+
+declAsignacion ::= valLocalizable:vl ASIGNACION expresion:exp TERMINADOR
+                {:
+                Symbol symAsg = (Symbol) CUP$Parser$stack.peek();
+                RESULT = new Nodo_Asignacion(vl, exp,  symAsg.left + 1, symAsg.right + 1); :};
+
+  /*se modifico la regla, para que en el arbol no apareciera arrglo para cada varaiable*/
+
+valLocalizable ::= ID:id {:  
+        Symbol s = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 0);
+        RESULT = new Nodo_Identificador(id, s.left + 1, s.right +1);:}
+    | ID:id IN_CORCH expresion:indice FIN_CORCH
+        {:
+        Symbol s = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 3);
+        ArrayList<Nodo_Expresion> indices = new ArrayList<>();
+        indices.add(indice);
+        Nodo_Identificador nodoId = new Nodo_Identificador(id, s.left + 1, s.right + 1);
+        RESULT = new Nodo_AccesoArray(nodoId, indices, s.left +1, s.right + 1);:}
+   | ID:id IN_CORCH expresion:indice1 FIN_CORCH IN_CORCH expresion:indice2 FIN_CORCH
+        {:       
+        Symbol s = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 6);
+        ArrayList<Nodo_Expresion> indices = new ArrayList<>();
+        indices.add(indice1);
+        indices.add(indice2);     
+        Nodo_Identificador nodoId = new Nodo_Identificador(id, s.left + 1, s.right + 1);
+        RESULT = new Nodo_AccesoArray(nodoId, indices, s.left +1, s.right + 1);:};
+        
+
+declArray ::= tipo:t ID:id IN_CORCH expresion:tamaño FIN_CORCH TERMINADOR
+            {:
+            Symbol s = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 4);
+            ArrayList<Nodo_Expresion> dimensiones = new ArrayList<Nodo_Expresion>(); 
+            dimensiones.add(tamaño);
+            RESULT = new Nodo_DeclaracionArray(t, (String)id, dimensiones,  s.left +1, s.right + 1); :}
+           
+            | tipo:t ID:id IN_CORCH expresion:tamaño1 FIN_CORCH IN_CORCH expresion:tamaño2 FIN_CORCH TERMINADOR
+            {:
+            Symbol s = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 6);
+            ArrayList<Nodo_Expresion> dimensiones = new ArrayList<Nodo_Expresion>(); 
+            dimensiones.add(tamaño1);
+            dimensiones.add(tamaño2);
+            RESULT = new Nodo_DeclaracionArray(t, (String)id, dimensiones,  s.left +1, s.right + 1);
+:};
+
+llamarMetodo ::= ID:id IN_PAREN listaParametrosCall:params FIN_PAREN
+                {:
+        Symbol s = (Symbol) CUP$Parser$stack.elementAt(CUP$Parser$top - 3);
+        String nombre = (String) s.value;
+        RESULT = new Nodo_LlamaMetodo(new Nodo_Identificador(nombre,  s.left + 1, s.right + 1), params,  s.left + 1, s.right + 1);
+                :};
+
+listaParametrosCall ::= /* vacio */
+                        {:RESULT = new ArrayList<Nodo_Expresion>(); :}
+                      | expresion:exp {:ArrayList<Nodo_Expresion> lista = new ArrayList<Nodo_Expresion>();
+                        lista.add(exp);
+                        RESULT = lista; :}
+                      | expresion:exp COMMA listaParametrosCall:resto
+                        {:resto.add(0, exp);
+                        RESULT = resto;
+:};
+
+// EXPRESIONES //
+expresion ::= expresionOr:e {: RESULT = e; :};
+
+expresionOr ::= expresionOr:e1 OR expresionAnd:e2
+                {: RESULT = new Nodo_OpBinario(e1, "||", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+              | expresionAnd:e {: RESULT = e; :};
+
+expresionAnd ::= expresionAnd:e1 AND expresionRelacional:e2
+                 {: RESULT = new Nodo_OpBinario(e1, "&&", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+               | expresionRelacional:e {: RESULT = e; :};
+
+expresionRelacional ::= expresionRelacional:e1 COMPARACION expresionAritmetica:e2
+                        {: RESULT = new Nodo_OpBinario(e1, "==", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+                      | expresionRelacional:e1 MAYOR expresionAritmetica:e2
+                        {: RESULT = new Nodo_OpBinario(e1, ">", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+                      | expresionRelacional:e1 MENOR expresionAritmetica:e2
+                        {: RESULT = new Nodo_OpBinario(e1, "<", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+                      | expresionRelacional:e1 MAYORIGUAL expresionAritmetica:e2
+                        {: RESULT = new Nodo_OpBinario(e1, ">=", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+                      | expresionRelacional:e1 MENORIGUAL expresionAritmetica:e2
+                        {: RESULT = new Nodo_OpBinario(e1, "<=", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+                      | expresionAritmetica:e {: RESULT = e; :};
+
+expresionAritmetica ::= expresionAritmetica:e1 OPE_SUMA termino:e2
+                        {: RESULT = new Nodo_OpBinario(e1, "+", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+                      | expresionAritmetica:e1 OPE_RESTA termino:e2
+                        {: RESULT = new Nodo_OpBinario(e1, "-", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+                      | termino:e {: RESULT = e; :};
+
+/*termino ::= termino:e1 OPE_MULT primario:e2
+            {: RESULT = new Nodo_OpBinario(e1, "*", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+          | termino:e1 OPE_DIV primario:e2
+            {: RESULT = new Nodo_OpBinario(e1, "/", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+          | primario:e {: RESULT = e; :};   se modifico*/
+
+termino ::= termino:e1 OPE_MULT expresionUnaria:e2
+            {: RESULT = new Nodo_OpBinario(e1, "*", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+          | termino:e1 OPE_DIV expresionUnaria:e2
+            {: RESULT = new Nodo_OpBinario(e1, "/", e2, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+          | expresionUnaria:e {: RESULT = e; :}; // <-- Nuevo punto de entrada
+
+/* integración del manejo del signo unario negativo.*/
+expresionUnaria ::= OPE_RESTA primario:e
+               {: RESULT = new Nodo_OpUnario("-", e, ((Symbol) CUP$Parser$stack.peek()).left + 1, ((Symbol) CUP$Parser$stack.peek()).right + 1); :}
+               | primario:e
+               {: RESULT = e; :};
+
+
+
+primario ::= NUMERO:n 
+    {: 
+    Symbol symNum = (Symbol) CUP$Parser$stack.peek();
+    RESULT = new Nodo_Numero(n, symNum.left + 1,symNum.right + 1); :}
+          
+ | NUMERO_REAL:r {:
+    Symbol symReal = (Symbol) CUP$Parser$stack.peek();
+    RESULT = new Nodo_Float(r, symReal.left + 1, symReal.right + 1); :}
+          
+ | TRUE:t {:
+    Symbol symTrue = (Symbol) CUP$Parser$stack.peek();
+    RESULT = new Nodo_Booleano(t,symTrue.left + 1, symTrue.right + 1 ); :}
+           
+| FALSE:f {: 
+    Symbol symFalse = (Symbol) CUP$Parser$stack.peek();
+    RESULT = new Nodo_Booleano(f,symFalse.left + 1, symFalse.right + 1 ); :}
+           
+| STRING_LITERAL:s {:
+    Symbol symString = (Symbol) CUP$Parser$stack.peek();
+    RESULT = new Nodo_StringLiteral(s, symString.left + 1, symString.right + 1); :}
+           
+| NEGACION primario:e {:
+    Symbol symNeg = (Symbol) CUP$Parser$stack.peek();
+    RESULT = new Nodo_OpUnario("!", e,  symNeg.left + 1, symNeg.right + 1); :}
+          
+| valLocalizable:v {: RESULT = v; :}
+          
+| valLocalizable:v INCREMENTO {:
+    Symbol symInc = (Symbol) CUP$Parser$stack.peek();
+    RESULT = new Nodo_OpPostfija(v, "++", symInc.left + 1, symInc.right + 1); :}
+           
+| valLocalizable:v DECREMENTO {: 
+    Symbol symDec = (Symbol) CUP$Parser$stack.peek();
+    RESULT = new Nodo_OpPostfija(v, "--", symDec.left + 1, symDec.right + 1); :}
+| llamarMetodo:lm {: RESULT = lm; :}   //metodo que se agrega para 
+
+| IN_PAREN expresion:e FIN_PAREN {: RESULT = e; :};
+
+
+
+/*continua tras encontrar el error
+instruccion::= error TERMINADOR{:RESULT = null; null : };*/
