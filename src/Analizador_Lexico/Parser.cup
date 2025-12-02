@@ -15,17 +15,17 @@ parser code {:
         String errorMsg = "Error sintáctico en línea " + linea + ", columna " + columna + 
                          " → encontrado: '" + lexema + "'\n   → " + mensaje;
         if (sugerencia != null && !sugerencia.isEmpty()) {
-            errorMsg += "\n   → " + sugerencia;
+            errorMsg += "\n   → Sugerencia: " + sugerencia;
         }
         
         erroresSintacticos.append(errorMsg).append("\n");
-        System.err.println(errorMsg);
     }
 
     @Override
     public void report_error(String message, Object info) {
         if (info instanceof Symbol) {
-            reportError(message, (Symbol) info, null);
+            Symbol s = (Symbol) info;
+            reportError(message, s, generarSugerencia((Symbol) info));
         } else {
             erroresSintacticos.append("Error sintáctico: " + message + "\n");
         }
@@ -34,17 +34,26 @@ parser code {:
     @Override
     public void syntax_error(Symbol s) {
         String lexema = (s != null && s.value != null) ? s.value.toString() : "EOF";
-        String sugerencia = "";
-        
-        if (lexema.equals("{")) {
-            sugerencia = "Se esperaba una instrucción antes de '{'";
-        } else if (lexema.equals("}")) {
-            sugerencia = "Posiblemente falta ';' en la instrucción anterior";
-        } else if (lexema.equals(";")) {
-            sugerencia = "Falta ';' al final de la instrucción anterior";
-        }
-        
+        String sugerencia = generarSugerencia(s);
         reportError("Símbolo inesperado", s, sugerencia);
+    }
+    
+    private String generarSugerencia(Symbol s) {
+        if (s == null) return "";
+        String lexema = s.value != null ? s.value.toString() : "";
+        
+        if (lexema.equals(";")) {
+            return "Falta una instrucción antes del ';'";
+        } else if (lexema.equals("{")) {
+            return "Se esperaba una instrucción antes de '{'";
+        } else if (lexema.equals("}")) {
+            return "Falta ';' al final de la instrucción anterior o hay '}'  sin '{'";
+        } else if (lexema.equals("else")) {
+            return "'else' sin 'if' previo";
+        } else if (lexema.equals("EOF")) {
+            return "Fin de archivo inesperado - verifica que todas las estructuras estén cerradas";
+        }
+        return "";
     }
 :};
 
@@ -96,13 +105,9 @@ start with programa;
 /* ============ PROGRAMA ============ */
 programa ::= MAIN IN_LLAVE instrucciones:lista FIN_LLAVE metodos:mets
         {: RESULT = new Nodo_Programa(lista, mets); :}
-    | MAIN IN_LLAVE error FIN_LLAVE
+    | MAIN error FIN_LLAVE
         {: 
-            parser.erroresSintacticos.append("Error sintáctico en línea ")
-                .append(((Symbol)CUP$Parser$stack.peek()).left + 1)
-                .append(", columna ").append(((Symbol)CUP$Parser$stack.peek()).right + 1)
-                .append(" → encontrado: 'error'\n")
-                .append("   → Error en el cuerpo de main\n");
+            parser.erroresSintacticos.append("Error sintáctico: Cuerpo de main inválido\n");
             RESULT = new Nodo_Programa(new ArrayList<>(), new ArrayList<>());
         :}
 ;
@@ -141,7 +146,7 @@ listaParametros ::= tipo:t ID:id
 
 /* ============ INSTRUCCIONES ============ */
 instrucciones ::= instruccion:i instrucciones:resto
-    {: resto.add(0, i); RESULT = resto; :}
+    {: if(i != null) { resto.add(0, i); } RESULT = resto; :}
   | {: RESULT = new ArrayList<>(); :}
 ;
 
@@ -157,21 +162,9 @@ instruccion ::= declVariable:dv {: RESULT = dv; :}
              | declArray:dar {: RESULT = dar; :}
              | llamarMetodo:lm TERMINADOR {: RESULT = new Nodo_ExpresionST(lm); :}
              | error TERMINADOR
-               {: 
-                   Symbol sym = (Symbol)CUP$Parser$stack.peek();
-                   parser.erroresSintacticos.append("Error sintáctico en línea ")
-                       .append(sym.left + 1).append(", columna ").append(sym.right + 1)
-                       .append(" → Instrucción inválida\n");
-                   RESULT = null;
-               :}
+               {: RESULT = null; :}
              | error
-               {: 
-                   Symbol sym = (Symbol)CUP$Parser$stack.peek();
-                   parser.erroresSintacticos.append("Error sintáctico en línea ")
-                       .append(sym.left + 1).append(", columna ").append(sym.right + 1)
-                       .append(" → Falta ';' al final de la instrucción anterior\n");
-                   RESULT = null;
-               :}
+               {: RESULT = null; :}
 ;
 
 /* ============ DECLARACIÓN DE VARIABLE ============ */
@@ -188,13 +181,6 @@ declVariable ::= tipo:t ID:id TERMINADOR
            .append(s.value != null ? s.value.toString() : "EOF").append("'\n")
            .append("   → Falta ';' al final de la declaración de variable\n");
        RESULT = new Nodo_DeclaracionVariable(t, (String)id, exp, s.left + 1, s.right + 1); :}
-  | tipo:t ID:id error TERMINADOR
-    {: Symbol s = (Symbol)CUP$Parser$stack.peek();
-       parser.erroresSintacticos.append("Error sintáctico en línea ").append(s.left + 1)
-           .append(", columna ").append(s.right + 1).append(" → encontrado: '")
-           .append(s.value != null ? s.value.toString() : "EOF").append("'\n")
-           .append("   → Se esperaba '=' o identificador válido\n");
-       RESULT = null; :}
 ;
 
 /* ============ ASIGNACIÓN ============ */
@@ -215,27 +201,11 @@ declIf ::= IF IN_PAREN expresion:cond FIN_PAREN IN_LLAVE instrucciones:inst FIN_
         {: RESULT = new Nodo_If(cond, inst, null); :}
       | IF IN_PAREN expresion:cond FIN_PAREN IN_LLAVE instrucciones:inst FIN_LLAVE ELSE IN_LLAVE instrucciones:elseInst FIN_LLAVE
         {: RESULT = new Nodo_If(cond, inst, elseInst); :}
-      | IF IN_PAREN error FIN_PAREN IN_LLAVE instrucciones:inst FIN_LLAVE
+      | IF error IN_LLAVE instrucciones:inst FIN_LLAVE
         {: Symbol s = (Symbol)CUP$Parser$stack.peek();
            parser.erroresSintacticos.append("Error sintáctico en línea ").append(s.left + 1)
-               .append(", columna ").append(s.right + 1).append(" → encontrado: '")
-               .append(s.value != null ? s.value.toString() : "EOF").append("'\n")
-               .append("   → Condición inválida en if\n");
+               .append(", columna ").append(s.right + 1).append(" → Condición inválida en if\n");
            RESULT = new Nodo_If(null, inst, null); :}
-      | IF IN_PAREN expresion:cond FIN_PAREN error IN_LLAVE instrucciones:inst FIN_LLAVE
-        {: Symbol s = (Symbol)CUP$Parser$stack.peek();
-           parser.erroresSintacticos.append("Error sintáctico en línea ").append(s.left + 1)
-               .append(", columna ").append(s.right + 1).append(" → encontrado: '")
-               .append(s.value != null ? s.value.toString() : "EOF").append("'\n")
-               .append("   → Falta '{' para abrir el bloque del if\n");
-           RESULT = new Nodo_If(cond, inst, null); :}
-      | ELSE error
-        {: Symbol s = (Symbol)CUP$Parser$stack.peek();
-           parser.erroresSintacticos.append("Error sintáctico en línea ").append(s.left + 1)
-               .append(", columna ").append(s.right + 1).append(" → encontrado: '")
-               .append(s.value != null ? s.value.toString() : "EOF").append("'\n")
-               .append("   → 'else' sin 'if' previo\n");
-           RESULT = null; :}
 ;
 
 /* ============ WHILE ============ */
