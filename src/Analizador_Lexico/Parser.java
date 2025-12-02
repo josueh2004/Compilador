@@ -474,7 +474,7 @@ public class Parser extends java_cup.runtime.lr_parser {
   /** <code>error</code> Symbol index. */
   public int error_sym() {return 1;}
 
-//aqui
+
 
     public StringBuilder erroresSintacticos = new StringBuilder();
     private final Stack<String> pilaEstructuras = new Stack<>();
@@ -492,41 +492,27 @@ public class Parser extends java_cup.runtime.lr_parser {
             if (sym.value != null) lexema = sym.value.toString();
         }
 
-        // Detectar el tipo de error de forma más precisa
         String sugerencia = "";
-        
-        if (lexema.equals(";")) {
-            sugerencia = "Se esperaba un punto y coma ';' para terminar la instrucción.";
-        } 
-        else if (lexema.equals("}")) {
-            sugerencia = "Se esperaba una instrucción o llave de apertura '{' antes de esta.";
-        } 
-        else if (lexema.equals(")")) {
-            sugerencia = "Se esperaba un paréntesis de apertura '(' o una expresión completa.";
-        } 
-        else if (lexema.equals("(")) {
-            sugerencia = "Se esperaba una expresión válida después del paréntesis '('.";
-        }
-        else if (lexema.equals("{")) {
+        // --- Detectar qué podría faltar según el contexto ---
+        if (lexema.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
+            sugerencia = "Se esperaba '(' después de 'while', 'if', 'for' o una estructura válida.";
+        } else if (lexema.equals("{")) {
             sugerencia = "Se esperaba una instrucción antes de la llave de apertura '{'.";
-        }
-        else if (lexema.equals("[")) {
-            sugerencia = "Se esperaba un índice válido dentro de los corchetes '['.";
-        }
-        else if (lexema.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
-            sugerencia = "Identificador o palabra reservada inesperado. Verifique la sintaxis.";
-        } 
-        else if (lexema.equals("EOF o símbolo desconocido")) {
-            sugerencia = "Fin de archivo inesperado. Posiblemente falten llaves, paréntesis o punto y coma.";
-        }
-        else {
-            sugerencia = "Token inesperado en esta posición.";
+        } else if (lexema.equals("}")) {
+            sugerencia = "Posiblemente sobra una llave de cierre '}'.";
+        } else if (lexema.equals(")")) {
+            sugerencia = "Puede faltar un paréntesis de apertura '('.";
+        } else if (lexema.equals(";")) {
+            sugerencia = "Puede faltar una instrucción antes del ';'.";
+        } else if (lexema.equals("EOF o símbolo desconocido")) {
+            sugerencia = "Posiblemente falta una llave, paréntesis o punto y coma al final.";
         }
 
-        String mensaje = "Error sintáctico en línea " + linea + ", columna " + columna + 
-                         ": símbolo inesperado '" + lexema + "'. " + sugerencia;
+        String mensaje = "Error sintáctico: símbolo inesperado '" + lexema +
+                         "' en línea " + linea + ", columna " + columna + ". " + sugerencia;
 
         erroresSintacticos.append(mensaje).append("\n");
+      //  System.err.println(mensaje);
     }
 
     // --- Errores de estructura (llaves, paréntesis, corchetes) ---
@@ -543,7 +529,7 @@ public class Parser extends java_cup.runtime.lr_parser {
 
         String mensaje = null;
 
-        // Seguimiento de estructuras con mejor validación
+        // Seguimiento de estructuras
         switch (lexema) {
             case "{":
             case "(":
@@ -555,17 +541,7 @@ public class Parser extends java_cup.runtime.lr_parser {
                 if (!pilaEstructuras.isEmpty() && pilaEstructuras.peek().startsWith("{")) {
                     pilaEstructuras.pop();
                 } else {
-                    if (pilaEstructuras.isEmpty()) {
-                        mensaje = "Error en línea " + linea + ": Llave de cierre '}' sin correspondencia. "
-                                + "No hay llave de apertura '{' para cerrar.";
-                    } else {
-                        String apertura = pilaEstructuras.peek();
-                        String tipo = apertura.substring(0, 1);
-                        int lineaApertura = Integer.parseInt(apertura.split("@")[1]);
-                        mensaje = "Error en línea " + linea + ": Llave de cierre '}' inesperada. "
-                                + "Se esperaba cerrar " + getTipoEstructura(tipo) 
-                                + " abierto en línea " + lineaApertura + ".";
-                    }
+                    mensaje = "Llave de cierre '}' inesperada en línea " + linea;
                 }
                 break;
 
@@ -573,17 +549,7 @@ public class Parser extends java_cup.runtime.lr_parser {
                 if (!pilaEstructuras.isEmpty() && pilaEstructuras.peek().startsWith("(")) {
                     pilaEstructuras.pop();
                 } else {
-                    if (pilaEstructuras.isEmpty()) {
-                        mensaje = "Error en línea " + linea + ": Paréntesis de cierre ')' sin correspondencia. "
-                                + "No hay paréntesis de apertura '(' para cerrar.";
-                    } else {
-                        String apertura = pilaEstructuras.peek();
-                        String tipo = apertura.substring(0, 1);
-                        int lineaApertura = Integer.parseInt(apertura.split("@")[1]);
-                        mensaje = "Error en línea " + linea + ": Paréntesis de cierre ')' inesperado. "
-                                + "Se esperaba cerrar " + getTipoEstructura(tipo) 
-                                + " abierto en línea " + lineaApertura + ".";
-                    }
+                    mensaje = "Paréntesis de cierre ')' inesperado en línea " + linea;
                 }
                 break;
 
@@ -591,17 +557,7 @@ public class Parser extends java_cup.runtime.lr_parser {
                 if (!pilaEstructuras.isEmpty() && pilaEstructuras.peek().startsWith("[")) {
                     pilaEstructuras.pop();
                 } else {
-                    if (pilaEstructuras.isEmpty()) {
-                        mensaje = "Error en línea " + linea + ": Corchete de cierre ']' sin correspondencia. "
-                                + "No hay corchete de apertura '[' para cerrar.";
-                    } else {
-                        String apertura = pilaEstructuras.peek();
-                        String tipo = apertura.substring(0, 1);
-                        int lineaApertura = Integer.parseInt(apertura.split("@")[1]);
-                        mensaje = "Error en línea " + linea + ": Corchete de cierre ']' inesperado. "
-                                + "Se esperaba cerrar " + getTipoEstructura(tipo) 
-                                + " abierto en línea " + lineaApertura + ".";
-                    }
+                    mensaje = "Corchete de cierre ']' inesperado en línea " + linea;
                 }
                 break;
 
@@ -610,14 +566,18 @@ public class Parser extends java_cup.runtime.lr_parser {
                     String apertura = pilaEstructuras.pop();
                     String tipo = apertura.substring(0, 1);
                     int lineaApertura = Integer.parseInt(apertura.split("@")[1]);
-                    mensaje = "Error: Falta cerrar " + getTipoEstructura(tipo) 
-                            + " abierto en línea " + lineaApertura + ".";
+                    switch (tipo) {
+                        case "{": mensaje = "Falta '}' correspondiente a la llave abierta en línea " + lineaApertura; break;
+                        case "(": mensaje = "Falta ')' correspondiente al paréntesis abierto en línea " + lineaApertura; break;
+                        case "[": mensaje = "Falta ']' correspondiente al corchete abierto en línea " + lineaApertura; break;
+                    }
                     erroresSintacticos.append(mensaje).append("\n");
+                  //  System.err.println(mensaje);
                 }
-                return;
+                break;
 
             default:
-                mensaje = "Error sintáctico en línea " + linea + ", columna " + columna +
+                mensaje = "Error de estructura en línea " + linea + ", columna " + columna +
                           ": símbolo inesperado '" + lexema + "'.";
         }
 
@@ -626,16 +586,6 @@ public class Parser extends java_cup.runtime.lr_parser {
         }
     }
 
-    // --- Método auxiliar para describir tipos de estructura ---
-    private String getTipoEstructura(String tipo) {
-        switch (tipo) {
-            case "{": return "una llave '}'";
-            case "(": return "un paréntesis ')'";
-            case "[": return "un corchete ']'";
-            default: return "una estructura";
-        }
-    }
-
     // --- Manejo de errores irrecuperables ---
     @Override
     public void unrecovered_syntax_error(java_cup.runtime.Symbol cur_token) throws java.lang.Exception {
@@ -643,198 +593,17 @@ public class Parser extends java_cup.runtime.lr_parser {
         int columna = (cur_token != null && cur_token.right >= 0) ? cur_token.right + 1 : -1;
         String lexema = (cur_token != null && cur_token.value != null) ? cur_token.value.toString() : "EOF o símbolo desconocido";
 
-        String mensaje = "Error fatal en línea " + linea + ", columna " + columna + 
-                         ": No se pudo recuperar del error sintáctico en '" + lexema + "'. "
-                         + "El analizador no puede continuar procesando el código.";
+        String mensaje = "Error fatal: no se pudo recuperar del error en '" + lexema +
+                         "' (línea " + linea + ", columna " + columna + ").";
 
         erroresSintacticos.append(mensaje).append("\n");
-        throw new Error(mensaje);
-    } public StringBuilder erroresSintacticos = new StringBuilder();
-    private final Stack<String> pilaEstructuras = new Stack<>();
+       // System.err.println(mensaje);
 
-    // --- Manejo de errores sintácticos generales ---
-    @Override
-    public void report_error(String message, Object info) {
-        int linea = 0, columna = 0;
-        String lexema = "EOF o símbolo desconocido";
-
-        if (info instanceof java_cup.runtime.Symbol) {
-            java_cup.runtime.Symbol sym = (java_cup.runtime.Symbol) info;
-            if (sym.left >= 0) {
-                linea = sym.left + 1;
-            }
-            if (sym.right >= 0) {
-                columna = sym.right + 1;
-            }
-            if (sym.value != null) {
-                lexema = sym.value.toString();
-            }
-        }
-
-        // Detectar el tipo de error de forma más precisa
-        String sugerencia = "";
-
-        if (lexema.equals(";")) {
-            sugerencia = "Se esperaba un punto y coma ';' para terminar la instrucción.";
-        } else if (lexema.equals("}")) {
-            sugerencia = "Se esperaba una instrucción o llave de apertura '{' antes de esta.";
-        } else if (lexema.equals(")")) {
-            sugerencia = "Se esperaba un paréntesis de apertura '(' o una expresión completa.";
-        } else if (lexema.equals("(")) {
-            sugerencia = "Se esperaba una expresión válida después del paréntesis '('.";
-        } else if (lexema.equals("{")) {
-            sugerencia = "Se esperaba una instrucción antes de la llave de apertura '{'.";
-        } else if (lexema.equals("[")) {
-            sugerencia = "Se esperaba un índice válido dentro de los corchetes '['.";
-        } else if (lexema.matches("[a-zA-Z_][a-zA-Z0-9_]*")) {
-            sugerencia = "Identificador o palabra reservada inesperado. Verifique la sintaxis.";
-        } else if (lexema.equals("EOF o símbolo desconocido")) {
-            sugerencia = "Fin de archivo inesperado. Posiblemente falten llaves, paréntesis o punto y coma.";
-        } else {
-            sugerencia = "Token inesperado en esta posición.";
-        }
-
-        String mensaje = "Error sintáctico en línea " + linea + ", columna " + columna
-                + ": símbolo inesperado '" + lexema + "'. " + sugerencia;
-
-        erroresSintacticos.append(mensaje).append("\n");
-    }
-
-    // --- Errores de estructura (llaves, paréntesis, corchetes) ---
-    @Override
-    public void syntax_error(java_cup.runtime.Symbol s) {
-        int linea = 0, columna = 0;
-        String lexema = "EOF o símbolo desconocido";
-
-        if (s != null) {
-            if (s.left >= 0) {
-                linea = s.left + 1;
-            }
-            if (s.right >= 0) {
-                columna = s.right + 1;
-            }
-            if (s.value != null) {
-                lexema = s.value.toString();
-            }
-        }
-
-        String mensaje = null;
-
-        // Seguimiento de estructuras con mejor validación
-        switch (lexema) {
-            case "{":
-            case "(":
-            case "[":
-                pilaEstructuras.push(lexema + "@" + linea);
-                break;
-
-            case "}":
-                if (!pilaEstructuras.isEmpty() && pilaEstructuras.peek().startsWith("{")) {
-                    pilaEstructuras.pop();
-                } else {
-                    if (pilaEstructuras.isEmpty()) {
-                        mensaje = "Error en línea " + linea + ": Llave de cierre '}' sin correspondencia. "
-                                + "No hay llave de apertura '{' para cerrar.";
-                    } else {
-                        String apertura = pilaEstructuras.peek();
-                        String tipo = apertura.substring(0, 1);
-                        int lineaApertura = Integer.parseInt(apertura.split("@")[1]);
-                        mensaje = "Error en línea " + linea + ": Llave de cierre '}' inesperada. "
-                                + "Se esperaba cerrar " + getTipoEstructura(tipo)
-                                + " abierto en línea " + lineaApertura + ".";
-                    }
-                }
-                break;
-
-            case ")":
-                if (!pilaEstructuras.isEmpty() && pilaEstructuras.peek().startsWith("(")) {
-                    pilaEstructuras.pop();
-                } else {
-                    if (pilaEstructuras.isEmpty()) {
-                        mensaje = "Error en línea " + linea + ": Paréntesis de cierre ')' sin correspondencia. "
-                                + "No hay paréntesis de apertura '(' para cerrar.";
-                    } else {
-                        String apertura = pilaEstructuras.peek();
-                        String tipo = apertura.substring(0, 1);
-                        int lineaApertura = Integer.parseInt(apertura.split("@")[1]);
-                        mensaje = "Error en línea " + linea + ": Paréntesis de cierre ')' inesperado. "
-                                + "Se esperaba cerrar " + getTipoEstructura(tipo)
-                                + " abierto en línea " + lineaApertura + ".";
-                    }
-                }
-                break;
-
-            case "]":
-                if (!pilaEstructuras.isEmpty() && pilaEstructuras.peek().startsWith("[")) {
-                    pilaEstructuras.pop();
-                } else {
-                    if (pilaEstructuras.isEmpty()) {
-                        mensaje = "Error en línea " + linea + ": Corchete de cierre ']' sin correspondencia. "
-                                + "No hay corchete de apertura '[' para cerrar.";
-                    } else {
-                        String apertura = pilaEstructuras.peek();
-                        String tipo = apertura.substring(0, 1);
-                        int lineaApertura = Integer.parseInt(apertura.split("@")[1]);
-                        mensaje = "Error en línea " + linea + ": Corchete de cierre ']' inesperado. "
-                                + "Se esperaba cerrar " + getTipoEstructura(tipo)
-                                + " abierto en línea " + lineaApertura + ".";
-                    }
-                }
-                break;
-
-            case "EOF o símbolo desconocido":
-                while (!pilaEstructuras.isEmpty()) {
-                    String apertura = pilaEstructuras.pop();
-                    String tipo = apertura.substring(0, 1);
-                    int lineaApertura = Integer.parseInt(apertura.split("@")[1]);
-                    mensaje = "Error: Falta cerrar " + getTipoEstructura(tipo)
-                            + " abierto en línea " + lineaApertura + ".";
-                    erroresSintacticos.append(mensaje).append("\n");
-                }
-                return;
-
-            default:
-                mensaje = "Error sintáctico en línea " + linea + ", columna " + columna
-                        + ": símbolo inesperado '" + lexema + "'.";
-        }
-
-        if (mensaje != null) {
-            erroresSintacticos.append(mensaje).append("\n");
-        }
-    }
-
-    // --- Método auxiliar para describir tipos de estructura ---
-    private String getTipoEstructura(String tipo) {
-        switch (tipo) {
-            case "{":
-                return "una llave '}'";
-            case "(":
-                return "un paréntesis ')'";
-            case "[":
-                return "un corchete ']'";
-            default:
-                return "una estructura";
-        }
-    }
-
-    // --- Manejo de errores irrecuperables ---
-    @Override
-    public void unrecovered_syntax_error(java_cup.runtime.Symbol cur_token) throws java.lang.Exception {
-        int linea = (cur_token != null && cur_token.left >= 0) ? cur_token.left + 1 : -1;
-        int columna = (cur_token != null && cur_token.right >= 0) ? cur_token.right + 1 : -1;
-        String lexema = (cur_token != null && cur_token.value != null) ? cur_token.value.toString() : "EOF o símbolo desconocido";
-
-        String mensaje = "Error fatal en línea " + linea + ", columna " + columna
-                + ": No se pudo recuperar del error sintáctico en '" + lexema + "'. "
-                + "El analizador no puede continuar procesando el código.";
-
-        erroresSintacticos.append(mensaje).append("\n");
-        throw new Error(mensaje);
+        throw new Error(mensaje); // evita que CUP lance excepción sin registrar el error
     }
 
 
-
-// 22
+/** Cup generated class to encapsulate user supplied action code.*/
 @SuppressWarnings({"rawtypes", "unchecked", "unused"})
 class CUP$Parser$actions {
   private final Parser parser;
@@ -907,7 +676,7 @@ class CUP$Parser$actions {
             {
               java.util.List<Nodo_Metodo> RESULT =null;
 		 RESULT = new java.util.ArrayList<Nodo_Metodo>();
-              CUP$Parser$result = parser.getSymbolFactory().newSymbol("metodos",1, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), (Symbol) RESULT);
+              CUP$Parser$result = parser.getSymbolFactory().newSymbol("metodos",1, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
 
@@ -994,7 +763,7 @@ class CUP$Parser$actions {
             {
               java.util.List<Nodo_Parametro> RESULT =null;
 		RESULT = new ArrayList<Nodo_Parametro>(); 
-              CUP$Parser$result = parser.getSymbolFactory().newSymbol("parametros",3, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), (Symbol) RESULT);
+              CUP$Parser$result = parser.getSymbolFactory().newSymbol("parametros",3, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
 
@@ -1075,7 +844,7 @@ class CUP$Parser$actions {
 		
     RESULT = new java.util.ArrayList<Nodo_Instruccion>();
   
-              CUP$Parser$result = parser.getSymbolFactory().newSymbol("instrucciones",5, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), (Symbol) RESULT);
+              CUP$Parser$result = parser.getSymbolFactory().newSymbol("instrucciones",5, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
 
@@ -1363,7 +1132,7 @@ class CUP$Parser$actions {
             {
               Nodo_Instruccion RESULT =null;
 		 RESULT = null; 
-              CUP$Parser$result = parser.getSymbolFactory().newSymbol("pasoFor", 29, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
+              CUP$Parser$result = parser.getSymbolFactory().newSymbol("pasoFor",29, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
 
@@ -1618,7 +1387,7 @@ class CUP$Parser$actions {
             {
               java.util.List<Nodo_Expresion> RESULT =null;
 		RESULT = new ArrayList<Nodo_Expresion>(); 
-              CUP$Parser$result = parser.getSymbolFactory().newSymbol("listaParametrosCall",27, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), (Symbol) RESULT);
+              CUP$Parser$result = parser.getSymbolFactory().newSymbol("listaParametrosCall",27, ((java_cup.runtime.Symbol)CUP$Parser$stack.peek()), RESULT);
             }
           return CUP$Parser$result;
 
