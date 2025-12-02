@@ -5,19 +5,22 @@ import java.io.File;
 public class Principal {
 
     public static void main(String[] args) throws Exception {
-        String ruta1 = "C:/Users/Lidia/Downloads/Compilador/src/Analizador_Lexico/Lexer.flex";
-        String ruta2 = "C:/Users/Lidia/Downloads/Compilador/src/Analizador_Lexico/LexerCup.flex";
-        String rutaSalidaCup = "C:/Users/Lidia/Downloads/Compilador/src/Analizador_Lexico/";
+        // RUTAS ACTUALIZADAS A TU CARPETA ACTUAL
+        String ruta1 = "src/Analizador_Lexico/Lexer.flex";
+        String ruta2 = "src/Analizador_Lexico/LexerCup.flex";
+        String rutaSalidaCup = "src/Analizador_Lexico/";
 
         String[] rutaS = {
             "-parser", "Parser",
             "-destdir", rutaSalidaCup,
-            "C:/Users/Lidia/Downloads/Compilador/src/Analizador_Lexico/Parser.cup"
+            "src/Analizador_Lexico/Parser.cup"
         };
 
         generarLexer(ruta1);
         generarLexer(ruta2);
         generarCup(rutaS);
+
+        System.out.println("Lexer y Parser generados correctamente!");
     }
 
     public static void generarLexer(String ruta) throws Exception {
@@ -26,16 +29,12 @@ public class Principal {
     }
 
     public static void generarCup(String[] rutaS) throws Exception {
-
-        File parserFile = new File("C:/Users/Lidia/Downloads/Compilador/src/Analizador_Lexico/Parser.java");
+        // Ruta absoluta o relativa al directorio actual del proyecto
+        File parserFile = new File("src/Analizador_Lexico/Parser.java");
         if (parserFile.exists()) {
             parserFile.delete();
             System.out.println("Parser.java eliminado antes de regenerar.");
         }
         java_cup.Main.main(rutaS);
-
-    }
-    public void muestra(){
-       // string nimbre= "gg";
     }
 }
