@@ -156,6 +156,114 @@ public class Acciones implements ActionListener {
 
     }
 
+    // ===========================
+    // Nuevo método: compilarCodigo
+    // ===========================
+    private void compilarCodigo() {
+        String codigo = vista.jTextCode.getText();
+        // limpiar salidas previas
+        vista.jTcompile.setText("");
+        vista.resultados_sintactico.setText("");
+        vista.resultados_arbolSintactico.setText("");
+        vista.resultado_Semantico.setText("");
+
+        if (codigo == null || codigo.trim().isEmpty()) {
+            vista.jTcompile.setText("No hay código para compilar.");
+            vista.jTcompile.setForeground(Color.ORANGE);
+            return;
+        }
+
+        // --- ANÁLISIS LÉXICO ---
+        try {
+            Lexer lexer = new Lexer(new StringReader(codigo));
+            Tokens token;
+            StringBuilder resultado = new StringBuilder();
+            DefaultTableModel model = (DefaultTableModel) vista.tabla_lexico.getModel();
+            model.setRowCount(0);
+
+            boolean hayErroresLexicos = false;
+
+            while ((token = lexer.yylex()) != null) {
+                resultado.append(token)
+                        .append(" : ")
+                        .append(lexer.yytext())
+                        .append("\n");
+                Object[] fila = {
+                    token,
+                    lexer.yytext(),
+                    lexer.getLinea() + 1,
+                    lexer.getColumna() + 1,
+                    obtenerGrupo(token)
+                };
+                model.addRow(fila);
+                // detectar si hay errores léxicos
+                if (token == Tokens.ERROR) {
+                    hayErroresLexicos = true;
+                }
+            }
+
+            // Verifica si hay errores léxicos
+            if (!lexer.errores.isEmpty()) {
+                resultado.append("\n--- Errores léxicos ---\n").append(lexer.errores.toString());
+            }
+            vista.jTcompile.setText("Análisis léxico completado.\n" + resultado.toString());
+
+            // --- ANÁLISIS SINTÁCTICO ---
+            if (!hayErroresLexicos) {
+                StringReader parserReader = new StringReader(codigo);
+                LexerCup lexerCup = new LexerCup(parserReader);
+                Parser parser = new Parser(lexerCup);
+
+                java_cup.runtime.Symbol resultSymbol = null;
+                try {
+                    // protegemos la llamada a parse para que NUNCA lance un error fatal al UI
+                    resultSymbol = parser.parse();
+                } catch (Exception ex) {
+                    // ignoramos la excepción: parser.erroresSintacticos debería contener mensajes
+                    // opcional: puedes loggear ex.printStackTrace();
+                } catch (Error er) {
+                    // también capturamos Error por si hay lanzamientos raros
+                }
+
+                // Mostrar errores sintácticos si los hubo
+                if (parser.erroresSintacticos != null && parser.erroresSintacticos.length() > 0) {
+                    StringBuilder erroresSint = new StringBuilder("Errores sintácticos:\n");
+                    erroresSint.append(parser.erroresSintacticos.toString());
+                    vista.resultados_sintactico.setText(erroresSint.toString());
+                } else {
+                    vista.resultados_sintactico.setText("Análisis sintáctico completado correctamente.");
+                    if (resultSymbol != null && resultSymbol.value instanceof Arbol.Nodo_AST) {
+                        Arbol.Nodo_AST nodoRaiz = (Arbol.Nodo_AST) resultSymbol.value;
+                        vista.resultados_arbolSintactico.setText(nodoRaiz.imprimir(""));
+
+                        // ANALISIS SEMÁNTICO
+                        AnalizadorSemantico semantico = new AnalizadorSemantico();
+                        semantico.analizar((Nodo_Programa) nodoRaiz);
+                        if (semantico.getError().isEmpty()) {
+                            vista.resultado_Semantico.setText("Análisis semántico completado sin errores.");
+                        } else {
+                            StringBuilder erroresSem = new StringBuilder("Errores semánticos:\n");
+                            for (ErrorSemantico ex : semantico.getError()) {
+                                erroresSem.append(" - ").append(ex.toString()).append("\n");
+                            }
+                            vista.resultado_Semantico.setText(erroresSem.toString());
+                        }
+
+                    } else {
+                        vista.resultados_arbolSintactico.setText("No se pudo generar el árbol");
+                    }
+                }
+
+            } else {
+                vista.resultados_sintactico.setText("No se puede ejecutar análisis sintáctico debido a errores léxicos.");
+            }
+
+        } catch (IOException ex) {
+            vista.jTcompile.setText("Error durante el análisis léxico: " + ex.getMessage());
+            vista.jTcompile.setForeground(Color.RED);
+        }
+    }
+
     @Override
     public void actionPerformed(ActionEvent e) {
         String comando = e.getActionCommand();
@@ -197,97 +305,8 @@ public class Acciones implements ActionListener {
                 break;
 
             case "Compilar":
-                String codigo = vista.jTextCode.getText();
-                try {
-                    Lexer lexer = new Lexer(new StringReader(codigo));
-                    Tokens token;
-                    StringBuilder resultado = new StringBuilder();
-                    DefaultTableModel model = (DefaultTableModel) vista.tabla_lexico.getModel();
-                    model.setRowCount(0);
-
-                    boolean hayErroresLexicos = false;
-
-                    while ((token = lexer.yylex()) != null) {
-                        resultado.append(token)
-                                .append(" : ")
-                                .append(lexer.yytext())
-                                .append("\n");
-                        Object[] fila = {
-                            token,
-                            lexer.yytext(),
-                            lexer.getLinea() + 1,
-                            lexer.getColumna() + 1,
-                            obtenerGrupo(token)
-
-                        };
-                        model.addRow(fila);
-                        // detectar si hay errores léxicos
-                        if (token == Tokens.ERROR) {
-                            hayErroresLexicos = true;
-                        }
-                    }
-
-                    // Verifica si hay errores léxicos
-                    if (!lexer.errores.isEmpty()) {
-                        resultado.append("\n--- Errores léxicos ---\n").append(lexer.errores.toString());
-                    }
-                    vista.jTcompile.setText("Análisis léxico completado.\n" + resultado.toString());
-
-                    // --- ANÁLISIS SINTÁCTICO ---
-                    if (!hayErroresLexicos) {
-                        StringReader parserReader = new StringReader(codigo);
-                        LexerCup lexerCup = new LexerCup(parserReader);
-                        Parser parser = new Parser(lexerCup);
-
-                        try {
-                            java_cup.runtime.Symbol resultSymbol = parser.parse();
-
-                            // Mostrar errores sintácticos si los hubo
-                            if (parser.erroresSintacticos.length() > 0) {
-                                // vista.resultados_sintactico.setText("Errores sintácticos detectados:\n" + parser.erroresSintacticos.toString());
-                                StringBuilder erroresSint = new StringBuilder("Errores sintácticos:\n");
-                                erroresSint.append(parser.erroresSintacticos.toString());
-                                vista.resultados_sintactico.setText(erroresSint.toString());
-                            } else {
-                                vista.resultados_sintactico.setText("Análisis sintáctico completado correctamente.");
-                                if (resultSymbol != null && resultSymbol.value instanceof Arbol.Nodo_AST) {
-                                    Arbol.Nodo_AST nodoRaiz = (Arbol.Nodo_AST) resultSymbol.value;
-                                    vista.resultados_arbolSintactico.setText(nodoRaiz.imprimir(""));
-
-                                    //ANALÍSIS SEMÁNTICO
-                                    AnalizadorSemantico semantico = new AnalizadorSemantico();
-                                    semantico.analizar((Nodo_Programa) nodoRaiz);
-                                    if (semantico.getError().isEmpty()) {
-                                        vista.resultado_Semantico.setText("Análisis semántico completado sin errores.");
-                                    } else {
-                                        StringBuilder erroresSem = new StringBuilder("Errores semánticos:\n");
-                                        for (ErrorSemantico ex : semantico.getError()) {
-                                            erroresSem.append(" - ").append(ex.toString()).append("\n");
-                                        }
-                                        vista.resultado_Semantico.setText(erroresSem.toString());
-                                    }
-
-                                } else {
-                                    vista.resultados_arbolSintactico.setText("No se pudo generar el árbol");
-                                }
-                            }
-
-                        } catch (Error fa) { // para ver el error real en consola
-                            // para ver el error real en consola
-                            vista.resultados_sintactico.setText(" \n" + fa.getMessage());
-                        } catch (Exception sintac) {
-                            vista.resultados_sintactico.setText("Error inesperado en análisis sintáctico:\n" + sintac.getMessage());
-                            sintac.printStackTrace(); // opcional, para consola
-                        }
-
-                    } else {
-                        vista.resultados_sintactico.setText("No se puede ejecutar análisis sintáctico debido a errores léxicos.");
-                    }
-
-                } catch (IOException ex) {
-                    //vista.resultados_sintactico.setText("Error en el analisis sintactico.\n");
-                }
-
+                // ahora solo llamamos al método seguro de compilación
+                compilarCodigo();
                 break;
 
             case "Manual":
@@ -299,6 +318,36 @@ public class Acciones implements ActionListener {
                 break;
         }
     }
+    
+    public void realizarAnalisisSintactico() {
+    String codigoFuente = vista.jTextCode.getText();
+    
+    // Limpiar las áreas de resultados antes de realizar el análisis
+    vista.resultados_sintactico.setText("");
+    vista.resultados_arbolSintactico.setText("");
+    
+    // Crear el analizador léxico y sintáctico
+    StringReader reader = new StringReader(codigoFuente);
+    LexerCup lexer = new LexerCup(reader);
+    Parser parser = new Parser(lexer);
+    
+    try {
+        // Realizar el análisis sintáctico
+        parser.parse();
+        
+        // Verificar si hay errores sintácticos
+        String erroresSintacticos = parser.erroresSintacticos.toString();
+        
+        if (!erroresSintacticos.isEmpty()) {
+            vista.resultados_sintactico.setText(erroresSintacticos);
+        } else {
+            vista.resultados_sintactico.setText("Análisis sintáctico realizado exitosamente. No se encontraron errores sintácticos.");
+        }
+        
+    } catch (Exception e) {
+        vista.resultados_sintactico.setText("Error durante el análisis sintáctico: " + e.getMessage());
+    }
+}
 
     private String obtenerGrupo(Tokens token) {
         switch (token) {
@@ -391,7 +440,7 @@ public class Acciones implements ActionListener {
 
     }
 
-//    controlador de ayuda
+    //    controlador de ayuda
     public void abrirPDF(String rutaArchivo) {
         try {
             File archivo = new File(rutaArchivo);
@@ -560,3 +609,4 @@ public class Acciones implements ActionListener {
     }
 
 }
+
